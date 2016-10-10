@@ -48,7 +48,7 @@ class DiceRoll:
         name_, count_, sides_, modifier_, rounding_ = m.groups()
         return cls(
             int(sides_),
-            int(count_),
+            int(count_) if count_ else 1,
             modifier_,
             cls.rounding_types[rounding_],
             name_[:-1] if name_ else ''
@@ -136,7 +136,7 @@ if __name__ == '__main__':
     try:
         args = sys.argv[1:]
     except:
-        args = [None]
+        args = ['d{}'.format(DEFAULT_SIDES)]
 
     # rolls = [DiceRoll.from_string(arg) for arg in args]
     # results = [roll.roll() for roll in rolls]
