@@ -4,15 +4,14 @@ from random import random
 from math import ceil, floor
 import sys
 from collections import namedtuple
+from tkinter import Tk
+import argparse
+from datetime import datetime
 
 DEFAULT_SIDES = 10
 
-# name, number, sides, modifier, rounding
-DICE_RE = re.compile('([\w_]*:)?(\d*)d(\d*)([\d\+\-\*/]*)([\^_]?)')
-
 UP_ARROW = chr(8593)
 DOWN_ARROW = chr(8595)
-
 
 def roll_die(n_sides):
     return ceil(random()*n_sides)
@@ -21,7 +20,8 @@ round_args = {'': '', 'up': UP_ARROW, 'down': DOWN_ARROW}
 
 
 class DiceRoll:
-    RE = re.compile('(.*:)?(\d*)d(\d*)([\d\+\-\*/]*)([\^_]?)')
+    # name, number, sides, modifier, rounding
+    DICE_RE = re.compile('(.*:)?(\d*)d(\d*)([\d\+\-\*/]*)([\^_]?)')
     rounding_types = {'^': 'up', '_': 'down', '': ''}
     arg_count = 1
     DiceResult = namedtuple('DiceResult',
@@ -44,7 +44,7 @@ class DiceRoll:
 
     @classmethod
     def from_string(cls, s):
-        m = cls.RE.match(s)
+        m = cls.DICE_RE.match(s)
         name_, count_, sides_, modifier_, rounding_ = m.groups()
         return cls(
             int(sides_),
@@ -132,15 +132,48 @@ class ResultTable:
         return vsep.join(self.hsep*width for width in widths)
 
 
+parser = argparse.ArgumentParser('''\
+Roll some dice!
+
+The primary syntax of this tool is the roll command, designed to be colloquial and terse.
+For example,
+>>> roll.py attack:2d20+4
+rolls 2 20-sided dice, adds 4 to the sum of the results, and labels this batch 'attack' in the output table.
+
+You can choose not to label it, modifiers are optional, and results can be rounded up or down with ^ and _
+
+>>> roll.py  # defaults to rolling 1d10, because I wrote this while playing Cyberpunk 2020.
+>>> roll.py d6
+>>> roll.py 2d12/3^  # roll 2d12, divide the sum by 3, and round up the result\
+>>> roll.py d3 d4 d6 d8 d12 d20  # multiple batches at once!
+''')
+# parser.add_argument('-c', '--clipboard', dest='clipboard', action='store_true')
+parser.add_argument('roll_command', nargs='+', default='d10', help='Tell the parser what sort of dice you want to roll')
+
+
 if __name__ == '__main__':
-    try:
-        args = sys.argv[1:]
-    except:
-        args = ['d{}'.format(DEFAULT_SIDES)]
+    args = parser.parse_args()
+    # try:
+    #     args = sys.argv[1:]
+    # except:
+    #     args = ['d{}'.format(DEFAULT_SIDES)]
 
     # rolls = [DiceRoll.from_string(arg) for arg in args]
     # results = [roll.roll() for roll in rolls]
     # table = ResultTable(results)
     # s = table.to_string()
 
-    ResultTable([DiceRoll.from_string(arg).roll() for arg in args]).print()
+    result_table = ResultTable([DiceRoll.from_string(arg).roll() for arg in args.roll_command])
+    table_str = result_table.to_string()
+    # if args.clipboard:
+        ## tkinter clears your clipboard when it closes so this doesn't work
+        ## raise NotImplementedError('--clipboard option is not available')
+        # timestamp = datetime.now().isoformat()
+        # clipboard_str = '{}\nRolled at {}'.format(table_str, timestamp)
+        # r = Tk()
+        # r.withdraw()
+        # r.clipboard_clear()
+        # r.clipboard_append(table_str)
+        # r.update()
+        # r.destroy()
+    print(table_str)
