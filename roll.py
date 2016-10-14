@@ -2,21 +2,42 @@
 import re
 from random import random
 from math import ceil, floor
-import sys
 from collections import namedtuple
 from tkinter import Tk
 import argparse
 from datetime import datetime
+from abc import ABCMeta, abstractmethod
+from itertools import combinations_with_replacement
+from math import inf
 
 DEFAULT_SIDES = 10
 
 UP_ARROW = chr(8593)
 DOWN_ARROW = chr(8595)
 
+# QUICK_ENUMERATE_REPS = 1000
+QUICK_ENUMERATE_REPS = inf
+
+round_args = {'': '', 'up': UP_ARROW, 'down': DOWN_ARROW}
+
+
 def roll_die(n_sides):
     return ceil(random()*n_sides)
 
-round_args = {'': '', 'up': UP_ARROW, 'down': DOWN_ARROW}
+
+def mean(lst):
+    total = sum(lst)
+    return total/len(lst)
+
+
+def var(lst):
+    mu = mean(lst)
+    sqdev = [(item - mu)**2 for item in lst]
+    return mean(sqdev)
+
+
+def std(lst):
+    return var(lst)**(1/2)
 
 
 class DiceRoll:
@@ -27,11 +48,14 @@ class DiceRoll:
     DiceResult = namedtuple('DiceResult',
                             ['name', 'argument', 'results', 'subtotal', 'total']
                             )
+    DiceDistribution = namedtuple('DiceDistribution',
+                                  ['name', 'argument', 'distribution']
+                                  )
 
-    def __init__(self, sides=DEFAULT_SIDES, count=1, modifier='', rounding='', name=''):
+    def __init__(self, sides=DEFAULT_SIDES, count=1, modifier=None, rounding='', name=''):
         self.sides = sides
         self.count = count
-        self.modifier = modifier
+        self.modifier = modifier if modifier else lambda x: x
 
         self.rounding = rounding
 
@@ -45,11 +69,11 @@ class DiceRoll:
     @classmethod
     def from_string(cls, s):
         m = cls.DICE_RE.match(s)
-        name_, count_, sides_, modifier_, rounding_ = m.groups()
+        name_, count_, sides_, modifier_str, rounding_ = m.groups()
         return cls(
             int(sides_),
             int(count_) if count_ else 1,
-            modifier_,
+            lambda x: eval(str(x) + modifier_str),
             cls.rounding_types[rounding_],
             name_[:-1] if name_ else ''
         )
@@ -58,18 +82,44 @@ class DiceRoll:
         rounding_fns = {'up': ceil, 'down': floor, '': lambda x: x}
         return rounding_fns[self.rounding](number)
 
-    def roll(self):
-        results = [roll_die(self.sides) for _ in range(self.count)]
-        subtotal = sum(results)
-        modified_subtotal = eval(str(subtotal) + self.modifier)
+    def _results_to_output(self, results_lst):
+        subtotal = sum(results_lst)
+        modified_subtotal = self.modifier(subtotal)
         total = self._round(modified_subtotal)
 
         return self.__class__.DiceResult(
             name=self.name,
             argument=self.argument,
-            results=results,
+            results=results_lst,
             subtotal=subtotal,
             total=total
+        )
+
+    def roll(self):
+        results = [roll_die(self.sides) for _ in range(self.count)]
+        return self._results_to_output(results)
+
+    def enumerate(self):
+        if self.sides * self.count > QUICK_ENUMERATE_REPS:
+            return self._quick_enumerate()
+        else:
+            return self._full_enumerate()
+
+    def _full_enumerate(self):
+        possible_results = combinations_with_replacement(range(1, self.sides+1), self.count)
+        totals = [self._results_to_output(results).total for results in possible_results]
+        return self.__class__.DiceDistribution(
+            name=self.name,
+            argument=self.argument,
+            distribution=FullDistribution(totals)
+        )
+
+    def _quick_enumerate(self, reps=QUICK_ENUMERATE_REPS):
+        totals = [self.roll().total for _ in range(reps)]
+        return self.__class__.DiceDistribution(
+            name=self.name,
+            argument=self.argument,
+            distribution=NormalDistribution(totals)
         )
 
     def reconstruct_arg(self):
@@ -132,6 +182,60 @@ class ResultTable:
         return vsep.join(self.hsep*width for width in widths)
 
 
+class Distribution(metaclass=ABCMeta):
+    """
+    Interface for distributions
+    """
+    @abstractmethod
+    def p_val(self, actual):
+        pass
+
+
+class FullDistribution(Distribution):
+    def __init__(self, possibles):
+        self.possibles = sorted(possibles)
+        self._rev_possibles = list(reversed(self.possibles))
+
+    def p_val(self, actual):
+        lower_or_equal_actual = len(self.possibles) - self._rev_possibles.index(actual)
+        higher_or_equal_actual = len(self.possibles) - self.possibles.index(actual)
+        return min(lower_or_equal_actual, higher_or_equal_actual)/len(self.possibles)
+
+    # algorithmically slower
+    # def _p_val_unsorted(self, actual):
+    #     lower_than_actual = 0
+    #     higher_than_actual = 0
+    #     for possible in self.possibles:
+    #         lower_than_actual += actual <= possible
+    #         higher_than_actual += actual >= possible
+    #
+    #     return min(lower_than_actual, higher_than_actual)/len(self.possibles)
+
+
+# todo: may not be statistically valid?
+class NormalDistribution(Distribution):
+    def __init__(self, sample):
+        self.mu = mean(sample)
+        self.sigma = std(sample)
+
+    def p_val(self, actual):
+        raise NotImplementedError
+        # todo
+
+
+def to_clipboard(table_str):
+    timestamp = datetime.now().isoformat()
+    clipboard_str = '{}\nRolled at {}'.format(table_str, timestamp)
+    r = Tk()
+    r.withdraw()
+    r.clipboard_clear()
+    r.clipboard_append(clipboard_str)
+    r.update()
+    print(table_str)
+    input('Result copied to clipboard! Press enter when you have pasted it to continue (clipboard will be cleared).')
+    r.destroy()
+
+
 parser = argparse.ArgumentParser('''\
 Roll some dice!
 
@@ -147,33 +251,17 @@ You can choose not to label it, modifiers are optional, and results can be round
 >>> roll.py 2d12/3^  # roll 2d12, divide the sum by 3, and round up the result\
 >>> roll.py d3 d4 d6 d8 d12 d20  # multiple batches at once!
 ''')
-# parser.add_argument('-c', '--clipboard', dest='clipboard', action='store_true')
+parser.add_argument('-c', '--clipboard', dest='clipboard', action='store_true')
+parser.add_argument('-s', '--statistics', dest='statistics', action='store_true')
 parser.add_argument('roll_command', nargs='+', default='d10', help='Tell the parser what sort of dice you want to roll')
 
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    # try:
-    #     args = sys.argv[1:]
-    # except:
-    #     args = ['d{}'.format(DEFAULT_SIDES)]
-
-    # rolls = [DiceRoll.from_string(arg) for arg in args]
-    # results = [roll.roll() for roll in rolls]
-    # table = ResultTable(results)
-    # s = table.to_string()
 
     result_table = ResultTable([DiceRoll.from_string(arg).roll() for arg in args.roll_command])
     table_str = result_table.to_string()
-    # if args.clipboard:
-        ## tkinter clears your clipboard when it closes so this doesn't work
-        ## raise NotImplementedError('--clipboard option is not available')
-        # timestamp = datetime.now().isoformat()
-        # clipboard_str = '{}\nRolled at {}'.format(table_str, timestamp)
-        # r = Tk()
-        # r.withdraw()
-        # r.clipboard_clear()
-        # r.clipboard_append(table_str)
-        # r.update()
-        # r.destroy()
-    print(table_str)
+    if args.clipboard:
+        to_clipboard(table_str)
+    else:
+        print(table_str)
