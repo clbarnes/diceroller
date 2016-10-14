@@ -42,7 +42,8 @@ def std(lst):
 
 class DiceRoll:
     # name, number, sides, modifier, rounding
-    DICE_RE = re.compile('(.*:)?(\d*)d(\d*)([\d\+\-\*/]*)([\^_]?)')
+    DICE_RE = re.compile('(.*:)?(\d*)d(\d*)(p\d*[hl])?([\d\+\-\*/]*)([\^_]?)')
+    PICK_RE = re.compile('p(\d*)([hl])')
     rounding_types = {'^': 'up', '_': 'down', '': ''}
     arg_count = 1
     DiceResult = namedtuple('DiceResult',
@@ -52,10 +53,12 @@ class DiceRoll:
                                   ['name', 'argument', 'distribution']
                                   )
 
-    def __init__(self, sides=DEFAULT_SIDES, count=1, modifier=None, rounding='', name=''):
+    def __init__(self, sides=DEFAULT_SIDES, count=1, pick_str='', modifier_str='', rounding='', name='', arg=''):
         self.sides = sides
         self.count = count
-        self.modifier = modifier if modifier else lambda x: x
+        self.modifier = lambda x: eval(str(x) + modifier_str)
+
+        self.pick = self._parse_pick_str(pick_str)
 
         self.rounding = rounding
 
@@ -64,12 +67,14 @@ class DiceRoll:
         self.name = name
         self.__class__.arg_count += 1
 
-        self.argument = self.reconstruct_arg()
+        self.argument = arg if arg else '{}d{}{}{}{}'.format(
+            count if count > 1 else '', sides, pick_str, modifier_str, round_args[self.rounding]
+        )
 
     @classmethod
     def from_string(cls, s):
         m = cls.DICE_RE.match(s)
-        name_, count_, sides_, modifier_str, rounding_ = m.groups()
+        name_, count_, sides_, pick_str, modifier_str, rounding_ = m.groups()
         return cls(
             int(sides_),
             int(count_) if count_ else 1,
@@ -84,7 +89,7 @@ class DiceRoll:
 
     def _results_to_output(self, results_lst):
         subtotal = sum(results_lst)
-        modified_subtotal = self.modifier(subtotal)
+        modified_subtotal = eval(str(subtotal)+self.modifier)
         total = self._round(modified_subtotal)
 
         return self.__class__.DiceResult(
@@ -122,10 +127,22 @@ class DiceRoll:
             distribution=NormalDistribution(totals)
         )
 
-    def reconstruct_arg(self):
-        return '{}d{}{}{}'.format(
-            self.count if self.count > 1 else '', self.sides, self.modifier, round_args[self.rounding]
-        )
+    def _parse_pick_str(self, pick_str):
+        if not pick_str:
+            return lambda x: x
+
+        m = self.PICK_RE.match(pick_str)
+        count, direction = m.groups()
+        count = 1 if count is None else int(count)
+
+        def pick_fn(lst):
+            sorted_lst = sorted(lst)
+            if direction == 'l':
+                return sorted_lst[:count]
+            elif direction == 'h':
+                return sorted_lst[-count:]
+
+        return pick_fn
 
 
 class ResultTable:
@@ -190,6 +207,10 @@ class Distribution(metaclass=ABCMeta):
     def p_val(self, actual):
         pass
 
+    @abstractmethod
+    @property
+    def expected(self):
+        pass
 
 class FullDistribution(Distribution):
     def __init__(self, possibles):
@@ -211,6 +232,10 @@ class FullDistribution(Distribution):
     #
     #     return min(lower_than_actual, higher_than_actual)/len(self.possibles)
 
+    @property
+    def expected(self):
+        return mean(self.possibles)
+
 
 # todo: may not be statistically valid?
 class NormalDistribution(Distribution):
@@ -221,6 +246,10 @@ class NormalDistribution(Distribution):
     def p_val(self, actual):
         raise NotImplementedError
         # todo
+
+    @property
+    def expected(self):
+        return self.mu
 
 
 def to_clipboard(table_str):
