@@ -243,7 +243,7 @@ You can choose not to label it, modifiers are optional, and results can be round
 >>> roll.py  # defaults to rolling 1d10, because I wrote this while playing Cyberpunk 2020.
 >>> roll.py d6
 >>> roll.py 2d12/3^  # roll 2d12, divide the sum by 3, and round up the result
->>> roll.py d3 d4 d6 d8 d12 d20  # multiple batches at once!
+>>> roll.py d3 d4 d6 d8 d12 d20  # multiple batches at once!\
 '''
 
 parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawTextHelpFormatter)
