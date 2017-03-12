@@ -2,6 +2,7 @@
 import re
 from random import random
 from math import ceil, floor
+import sys
 from collections import namedtuple
 from tkinter import Tk
 import argparse
@@ -229,7 +230,7 @@ def to_clipboard(table_str):
     r.destroy()
 
 
-parser = argparse.ArgumentParser('''\
+description = '''\
 Roll some dice!
 
 The primary syntax of this tool is the roll command, designed to be colloquial and terse.
@@ -241,20 +242,32 @@ You can choose not to label it, modifiers are optional, and results can be round
 
 >>> roll.py  # defaults to rolling 1d10, because I wrote this while playing Cyberpunk 2020.
 >>> roll.py d6
->>> roll.py 2d12/3^  # roll 2d12, divide the sum by 3, and round up the result\
+>>> roll.py 2d12/3^  # roll 2d12, divide the sum by 3, and round up the result
 >>> roll.py d3 d4 d6 d8 d12 d20  # multiple batches at once!
-''')
+'''
+
+parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawTextHelpFormatter)
 parser.add_argument('-c', '--clipboard', dest='clipboard', action='store_true')
-parser.add_argument('-s', '--statistics', dest='statistics', action='store_true')
 parser.add_argument('roll_command', nargs='+', default='d10', help='Tell the parser what sort of dice you want to roll')
 
 
 if __name__ == '__main__':
-    args = parser.parse_args()
+    try:
+        args = parser.parse_args()
+    except:
+        parser.print_help()
+        sys.exit(0)
+    # try:
+    #     args = sys.argv[1:]
+    # except:
+    #     args = ['d{}'.format(DEFAULT_SIDES)]
 
-    rollers = [DiceRoll.from_string(arg, args.statistics) for arg in args.roll_command]
+    # rolls = [DiceRoll.from_string(arg) for arg in args]
+    # results = [roll.roll() for roll in rolls]
+    # table = ResultTable(results)
+    # s = table.to_string()
 
-    result_table = ResultTable([roller.roll() for roller in rollers])
+    result_table = ResultTable([DiceRoll.from_string(arg).roll() for arg in args.roll_command])
     table_str = result_table.to_string()
     if args.clipboard:
         to_clipboard(table_str)
