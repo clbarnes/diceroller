@@ -82,9 +82,9 @@ class DiceRoll:
         return cls(
             sides=int(sides_),
             count=int(count_) if count_ else 1,
-            pick_str=pick_str,
+            pick_str=pick_str if pick_str else '',
             modifier_str=modifier_str,
-            rounding_=cls.rounding_types[rounding_],
+            rounding=cls.rounding_types[rounding_],
             name=name_[:-1] if name_ else '',
             stats=stats
         )
@@ -105,7 +105,7 @@ class DiceRoll:
             results=results_lst,
             subtotal=subtotal,
             total=total,
-            distribution=self.distribution
+            # distribution=self.distribution
         )
 
     def roll(self):
