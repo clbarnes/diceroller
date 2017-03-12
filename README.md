@@ -10,7 +10,11 @@ A command line dice roller.
 
 At its core, `roll.py` allows you to roll what you'd say: for example, 
 `d4`, or `2d8`, or `10d6+15`. The dice are all rolled separately, then
-summed, then the modifier is applied.
+summed, then the highest or lowest are picked as desired, then the 
+modifier is applied, and finally the result is rounded as desired.
+
+You can also select either the highest or lowest of a set of dice: 
+`5d6p3h`
 
 `roll.py` also supports rounding up (`^`) or down (`_`) for division 
 modifiers: `3d6/2^` or `2d10/3_`.

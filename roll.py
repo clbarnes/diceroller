@@ -6,7 +6,6 @@ from collections import namedtuple
 from tkinter import Tk
 import argparse
 from datetime import datetime
-from abc import ABCMeta, abstractmethod
 from itertools import combinations_with_replacement
 from math import inf
 
@@ -40,6 +39,11 @@ def std(lst):
     return var(lst)**(1/2)
 
 
+DiceResult = namedtuple('DiceResult',
+                            ['name', 'argument', 'results', 'subtotal', 'total', 'distribution']
+                            )
+
+
 class DiceRoll:
     # name, number, sides, modifier, rounding
     DICE_RE = re.compile('(.*:)?(\d*)d(\d*)(p\d*[hl])?([\d\+\-\*/]*)([\^_]?)')
@@ -49,11 +53,9 @@ class DiceRoll:
     DiceResult = namedtuple('DiceResult',
                             ['name', 'argument', 'results', 'subtotal', 'total']
                             )
-    DiceDistribution = namedtuple('DiceDistribution',
-                                  ['name', 'argument', 'distribution']
-                                  )
 
-    def __init__(self, sides=DEFAULT_SIDES, count=1, pick_str='', modifier_str='', rounding='', name='', arg=''):
+    def __init__(self, sides=DEFAULT_SIDES, count=1, pick_str='', modifier_str='', rounding='', name='', arg='',
+                 stats=False):
         self.sides = sides
         self.count = count
         self.modifier = lambda x: eval(str(x) + modifier_str)
@@ -71,16 +73,20 @@ class DiceRoll:
             count if count > 1 else '', sides, pick_str, modifier_str, round_args[self.rounding]
         )
 
+        self.distribution = self.enumerate() if stats else None
+
     @classmethod
-    def from_string(cls, s):
+    def from_string(cls, s, stats=False):
         m = cls.DICE_RE.match(s)
         name_, count_, sides_, pick_str, modifier_str, rounding_ = m.groups()
         return cls(
-            int(sides_),
-            int(count_) if count_ else 1,
-            lambda x: eval(str(x) + modifier_str),
-            cls.rounding_types[rounding_],
-            name_[:-1] if name_ else ''
+            sides=int(sides_),
+            count=int(count_) if count_ else 1,
+            pick_str=pick_str,
+            modifier_str=modifier_str,
+            rounding_=cls.rounding_types[rounding_],
+            name=name_[:-1] if name_ else '',
+            stats=stats
         )
 
     def _round(self, number):
@@ -88,8 +94,9 @@ class DiceRoll:
         return rounding_fns[self.rounding](number)
 
     def _results_to_output(self, results_lst):
-        subtotal = sum(results_lst)
-        modified_subtotal = eval(str(subtotal)+self.modifier)
+        picked_list = self.pick(results_lst)
+        subtotal = sum(picked_list)
+        modified_subtotal = self.modifier(subtotal)
         total = self._round(modified_subtotal)
 
         return self.__class__.DiceResult(
@@ -97,11 +104,12 @@ class DiceRoll:
             argument=self.argument,
             results=results_lst,
             subtotal=subtotal,
-            total=total
+            total=total,
+            distribution=self.distribution
         )
 
     def roll(self):
-        results = [roll_die(self.sides) for _ in range(self.count)]
+        results = list(sorted(roll_die(self.sides) for _ in range(self.count)))
         return self._results_to_output(results)
 
     def enumerate(self):
@@ -113,19 +121,12 @@ class DiceRoll:
     def _full_enumerate(self):
         possible_results = combinations_with_replacement(range(1, self.sides+1), self.count)
         totals = [self._results_to_output(results).total for results in possible_results]
-        return self.__class__.DiceDistribution(
-            name=self.name,
-            argument=self.argument,
-            distribution=FullDistribution(totals)
-        )
+        return FullDistribution(totals, full=True)
 
     def _quick_enumerate(self, reps=QUICK_ENUMERATE_REPS):
+        assert reps < inf
         totals = [self.roll().total for _ in range(reps)]
-        return self.__class__.DiceDistribution(
-            name=self.name,
-            argument=self.argument,
-            distribution=NormalDistribution(totals)
-        )
+        return FullDistribution(totals, full=False)
 
     def _parse_pick_str(self, pick_str):
         if not pick_str:
@@ -166,7 +167,7 @@ class ResultTable:
             results=', '.join(str(result) for result in results.results),
             subtotal=str(results.subtotal),
             total=str(results.total)
-        )
+        )  # todo include distribution information
 
     def _get_widths(self):
         widths = [len(header) for header in self.headers]
@@ -199,57 +200,20 @@ class ResultTable:
         return vsep.join(self.hsep*width for width in widths)
 
 
-class Distribution(metaclass=ABCMeta):
-    """
-    Interface for distributions
-    """
-    @abstractmethod
-    def p_val(self, actual):
-        pass
-
-    @abstractmethod
-    @property
-    def expected(self):
-        pass
-
-class FullDistribution(Distribution):
-    def __init__(self, possibles):
+class FullDistribution:
+    def __init__(self, possibles, full=False):
         self.possibles = sorted(possibles)
         self._rev_possibles = list(reversed(self.possibles))
+        self.full = full
 
     def p_val(self, actual):
         lower_or_equal_actual = len(self.possibles) - self._rev_possibles.index(actual)
         higher_or_equal_actual = len(self.possibles) - self.possibles.index(actual)
         return min(lower_or_equal_actual, higher_or_equal_actual)/len(self.possibles)
 
-    # algorithmically slower
-    # def _p_val_unsorted(self, actual):
-    #     lower_than_actual = 0
-    #     higher_than_actual = 0
-    #     for possible in self.possibles:
-    #         lower_than_actual += actual <= possible
-    #         higher_than_actual += actual >= possible
-    #
-    #     return min(lower_than_actual, higher_than_actual)/len(self.possibles)
-
     @property
     def expected(self):
         return mean(self.possibles)
-
-
-# todo: may not be statistically valid?
-class NormalDistribution(Distribution):
-    def __init__(self, sample):
-        self.mu = mean(sample)
-        self.sigma = std(sample)
-
-    def p_val(self, actual):
-        raise NotImplementedError
-        # todo
-
-    @property
-    def expected(self):
-        return self.mu
 
 
 def to_clipboard(table_str):
@@ -288,7 +252,9 @@ parser.add_argument('roll_command', nargs='+', default='d10', help='Tell the par
 if __name__ == '__main__':
     args = parser.parse_args()
 
-    result_table = ResultTable([DiceRoll.from_string(arg).roll() for arg in args.roll_command])
+    rollers = [DiceRoll.from_string(arg, args.statistics) for arg in args.roll_command]
+
+    result_table = ResultTable([roller.roll() for roller in rollers])
     table_str = result_table.to_string()
     if args.clipboard:
         to_clipboard(table_str)
